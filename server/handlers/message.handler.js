@@ -47,10 +47,10 @@
 
 
 //UPDATED DAY  3 SPAM CHECK
-
 const { getSession, setSession } = require("../services/session.service");
 const { confirmContribution } = require("./callback.handler");
 const { getClient } = require("../config/redis"); // CHANGE 1: needed for spam counter
+const { getGroupSettings } = require("../services/settings.service"); // CHANGE 6: per-group settings
 
 // ─── CHANGE 2 ───────────────────────────────────────────────────────────────
 // New helper: tracks how many messages a user has sent in the current group
@@ -97,7 +97,7 @@ async function isGroupAdmin(bot, chatId, userId) {
 }
 // ──────────────────────────────────────────────────────────────────────────
 
-async function handleMessage(bot, message) {
+async function handleMessage(bot, message, db) {
   const chatId = message.chat.id;
   const userId = message.from.id;
   const text = message.text || "";
@@ -111,10 +111,18 @@ async function handleMessage(bot, message) {
   // We only apply this in group chats (not private chats with the bot),
   // since "spamming" only makes sense as a group-disruption concept —
   // muting someone in a 1-on-1 chat with the bot doesn't mean anything.
+  //
+  // ─── CHANGE 7 ─────────────────────────────────────────────────────────
+  // The threshold (previously a hardcoded `10`) now comes from each
+  // group's own settings row (group_settings.max_messages_per_minute),
+  // fetched via getGroupSettings — which itself checks Redis first before
+  // falling back to Postgres. This is what makes spam sensitivity
+  // configurable per group without a bot restart.
   if (message.chat.type === "group" || message.chat.type === "supergroup") {
     try {
+      const settings = await getGroupSettings(db, chatId);
       const count = await incrementMessageCount(chatId, userId);
-      if (count > 10) {
+      if (count > settings.max_messages_per_minute) {
         await bot.telegram.sendMessage(
           chatId,
           `${message.from.first_name} is posting too fast. Muted for 5 minutes.`
