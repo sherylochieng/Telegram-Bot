@@ -1,4 +1,4 @@
-const { Client } = require("pg");
+const { getGroupSettings } = require("../services/settings.service"); // CHANGE D: per-group settings
 
 async function handleChatMemberUpdate(ctx, db) {
   const update = ctx.chatMember;
@@ -34,11 +34,17 @@ async function handleChatMemberUpdate(ctx, db) {
       }
     }
 
-    // Send welcome + rules with Accept button
+    // ─── CHANGE E ─────────────────────────────────────────────────────────
+    // Rules text now comes from this group's own settings row (via
+    // getGroupSettings, which checks Redis first, then Postgres), instead
+    // of being hardcoded here. Different groups can now show different
+    // rules without any code change — just update their group_settings row.
+    const settings = await getGroupSettings(db, chatId);
+
     try {
       await ctx.telegram.sendMessage(
         chatId,
-        `Karibu ${user.first_name}! Please read and accept the rules:\n\n1. Be kind.\n2. No spam.\n3. English or Kiswahili only.`,
+        `Karibu ${user.first_name}! Please read and accept the rules:\n\n${settings.rules_text}`,
         {
           reply_markup: {
             inline_keyboard: [[{ text: "Accept rules", callback_data: `acc:${user.id}` }]],
@@ -48,6 +54,7 @@ async function handleChatMemberUpdate(ctx, db) {
     } catch (err) {
       console.error("Error sending welcome message:", err.message);
     }
+    // ──────────────────────────────────────────────────────────────────────
   }
 
   // A user left
