@@ -102,6 +102,7 @@ const { Client } = require("pg");
 const env = require("../config/env");
 const { handleMessage } = require("../handlers/message.handler");
 const { handleCallbackQuery } = require("../handlers/callback.handler");
+const { handleChatMemberUpdate } = require("../handlers/member.handler");
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
@@ -188,6 +189,12 @@ bot.on("callback_query", async (ctx) => {
       await ctx.answerCbQuery("Error processing request");
     } catch (e) {}
   }
+});
+
+//add
+bot.on("chat_member", async (ctx) => {
+  console.log("Chat member update received");
+  await handleChatMemberUpdate(ctx, db);
 });
 
 bot.catch((err) => {
