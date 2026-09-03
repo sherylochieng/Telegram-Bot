@@ -14,7 +14,7 @@ const cron = require("node-cron");
 // like `daily_reminder_enabled` to group_settings and filter on that here.
 function scheduleDailyReminder(bot, db) {
   cron.schedule(
-    "0 8 * * *",
+    "0 8 * * *", // ─── CHANGE H ────────────────────────────────────────────────
     async () => {
       console.log("Running daily chama reminder");
       try {
