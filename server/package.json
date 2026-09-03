@@ -2,6 +2,7 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "node-cron": "^4.6.0",
     "node-telegram-bot-api": "^2.1.0",
     "pg": "^8.23.0",
     "redis": "^6.2.1",

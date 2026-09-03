@@ -4,6 +4,7 @@ const env = require("../config/env");
 const { handleMessage } = require("../handlers/message.handler");
 const { handleCallbackQuery } = require("../handlers/callback.handler");
 const { handleChatMemberUpdate } = require("../handlers/member.handler"); // CHANGE A: group management (Day 3)
+const { scheduleDailyReminder } = require("./scheduled-jobs"); // CHANGE F: cron jobs (Day 4)
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
@@ -13,10 +14,21 @@ if (process.env.DATABASE_URL) {
   db = new Client({
     connectionString: process.env.DATABASE_URL,
   });
-  db.connect().catch(err => {
-    console.error("Database connection error:", err.message);
-    db = null;
-  });
+  db.connect()
+    .then(() => {
+      // ─── CHANGE G ─────────────────────────────────────────────────────────
+      // Start the daily reminder cron job once we have a working DB
+      // connection. We wait for the connection to succeed first because
+      // the cron job needs `db` to query group_settings when it fires —
+      // starting it before we know the connection works risks silent
+      // failures every day at 8am if the DB was never actually available.
+      scheduleDailyReminder(bot, db);
+      // ──────────────────────────────────────────────────────────────────────
+    })
+    .catch(err => {
+      console.error("Database connection error:", err.message);
+      db = null;
+    });
 }
 
 // Save chat to database
