@@ -1,56 +1,19 @@
-// const { getSession, setSession } = require("../services/session.service");
-// const { confirmContribution } = require("./callback.handler");
-
-// async function handleMessage(bot, message) {
-//   const chatId = message.chat.id;
-//   const userId = message.from.id;
-//   const text = message.text || "";
-
-//   const session = await getSession(chatId, userId);
-
-//   // State: awaiting custom contribution amount
-//   if (session.state === "awaiting_custom_amount") {
-//     const amount = parseInt(text, 10);
-//     if (isNaN(amount) || amount <= 0) {
-//       await bot.telegram.sendMessage(chatId, "Please type a number greater than 0.");
-//       return;
-//     }
-//     await confirmContribution(bot, chatId, userId, amount);
-//     return;
-//   }
-
-//   // Default: command parsing
-//   if (text === "/start") {
-//     await bot.telegram.sendMessage(chatId, "Welcome! Use /help for commands.");
-//     return;
-//   }
-
-//   if (text === "/help") {
-//     await bot.telegram.sendMessage(chatId,
-//       "Available commands:\n" +
-//       "/start - start the bot\n" +
-//       "/help - show this message\n" +
-//       "/echo <text> - echo back\n"
-//     );
-//     return;
-//   }
-
-//   if (text.startsWith("/echo ")) {
-//     await bot.telegram.sendMessage(chatId, text.slice(6));
-//     return;
-//   }
-
-//   await bot.telegram.sendMessage(chatId, `You said: ${text}`);
-// }
-
-// module.exports = { handleMessage };
-
-
-//UPDATED DAY  3 SPAM CHECK
 const { getSession, setSession } = require("../services/session.service");
 const { confirmContribution } = require("./callback.handler");
 const { getClient } = require("../config/redis"); // CHANGE 1: needed for spam counter
 const { getGroupSettings } = require("../services/settings.service"); // CHANGE 6: per-group settings
+const { broadcast } = require("../services/broadcast.service"); // CHANGE 9: broadcast command (Day 4)
+
+// ─── CHANGE 10 ───────────────────────────────────────────────────────────────
+// Hardcoded bot-owner ID — the only Telegram user allowed to run /broadcast.
+// Why hardcoded rather than a DB-driven admin list: /broadcast sends to
+// EVERY group the bot is in, not just the group it's run from. That's a
+// much bigger blast radius than a single group's admin permissions (which
+// is what isGroupAdmin checks). Since this bot currently has one owner,
+// a hardcoded ID is the simplest correct gate — a proper multi-admin table
+// can replace this later if the bot ever has more than one operator.
+const BOT_OWNER_ID = 656799423;
+// ──────────────────────────────────────────────────────────────────────────
 
 // ─── CHANGE 2 ───────────────────────────────────────────────────────────────
 // New helper: tracks how many messages a user has sent in the current group
@@ -212,6 +175,47 @@ async function handleMessage(bot, message, db) {
     } catch (err) {
       console.error("Error kicking member:", err.message);
       await bot.telegram.sendMessage(chatId, "Failed to kick member.");
+    }
+    return;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
+  // ─── CHANGE 11 ────────────────────────────────────────────────────────────
+  // New command: /broadcast <message>, restricted to BOT_OWNER_ID.
+  //
+  // Usage: /broadcast Hello everyone! (sends "Hello everyone!" to every
+  // group/supergroup the bot is currently in).
+  //
+  // Why check identity first, before doing anything else: this command has
+  // the largest blast radius of anything in the bot (it messages every
+  // group at once), so we fail closed immediately for non-owners rather
+  // than risk any accidental path around the check.
+  //
+  // The actual sending logic (pacing, idempotency, 403/429 handling) lives
+  // in broadcast.service.js — this handler just parses the command and
+  // reports the result back to whoever ran it.
+  if (text.startsWith("/broadcast")) {
+    if (userId !== BOT_OWNER_ID) {
+      await bot.telegram.sendMessage(chatId, "This command is restricted.");
+      return;
+    }
+
+    const broadcastText = text.slice("/broadcast".length).trim();
+    if (!broadcastText) {
+      await bot.telegram.sendMessage(chatId, "Usage: /broadcast <message>");
+      return;
+    }
+
+    await bot.telegram.sendMessage(chatId, "Broadcasting... this may take a moment.");
+    try {
+      const result = await broadcast(bot, db, broadcastText);
+      await bot.telegram.sendMessage(
+        chatId,
+        `Broadcast complete. Sent: ${result.sent}, Failed: ${result.failed}`
+      );
+    } catch (err) {
+      console.error("Broadcast failed:", err.message);
+      await bot.telegram.sendMessage(chatId, "Broadcast failed. Check server logs.");
     }
     return;
   }
