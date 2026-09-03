@@ -79,6 +79,29 @@ async function broadcast(bot, db, text) {
         await db.query(`DELETE FROM telegram_chats WHERE id = $1`, [chatId]);
         await recordDelivery(db, broadcastId, chatId, "failed_removed");
         failed++;
+      } else if (err.response?.parameters?.migrate_to_chat_id) {
+        // ─── CHANGE: handle group -> supergroup migration ───────────────────
+        // Telegram returns this specific error when a group we have on
+        // record was upgraded to a supergroup, which changes its chat_id
+        // entirely. The error response includes the NEW id in
+        // parameters.migrate_to_chat_id, so instead of just marking this
+        // send as failed, we update our own telegram_chats row to the new
+        // id and retry the send immediately — self-healing instead of
+        // leaving a permanently-dead row that fails on every future
+        // broadcast.
+        const newChatId = err.response.parameters.migrate_to_chat_id;
+        console.log(`Chat ${chatId} migrated to supergroup ${newChatId} — updating record`);
+        try {
+          await db.query(`UPDATE telegram_chats SET id = $1 WHERE id = $2`, [newChatId, chatId]);
+          await bot.telegram.sendMessage(newChatId, text, { parse_mode: "HTML" });
+          await recordDelivery(db, broadcastId, newChatId, "sent");
+          sent++;
+        } catch (migrateErr) {
+          console.error(`Failed to handle migration for chat ${chatId}:`, migrateErr.message);
+          await recordDelivery(db, broadcastId, chatId, "failed");
+          failed++;
+        }
+        // ──────────────────────────────────────────────────────────────────
       } else if (errorCode === 429) {
         const retryAfter = (err.response?.parameters?.retry_after || 1) * 1000;
         await sleep(retryAfter);
