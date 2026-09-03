@@ -4,7 +4,7 @@ const env = require("../config/env");
 const { handleMessage } = require("../handlers/message.handler");
 const { handleCallbackQuery } = require("../handlers/callback.handler");
 const { handleChatMemberUpdate } = require("../handlers/member.handler"); // CHANGE A: group management (Day 3)
-const { scheduleDailyReminder } = require("./scheduled-jobs"); // CHANGE F: cron jobs (Day 4)
+const { scheduleDailyReminder, scheduleOverdueReminder } = require("./scheduled-jobs"); // CHANGE F: cron jobs (Day 4)
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
@@ -23,6 +23,7 @@ if (process.env.DATABASE_URL) {
       // starting it before we know the connection works risks silent
       // failures every day at 8am if the DB was never actually available.
       scheduleDailyReminder(bot, db);
+      scheduleOverdueReminder(bot, db); // CHANGE H: 7-day overdue personal reminder
       // ──────────────────────────────────────────────────────────────────────
     })
     .catch(err => {
