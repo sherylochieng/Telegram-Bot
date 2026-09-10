@@ -14,7 +14,7 @@ const cron = require("node-cron");
 // like `daily_reminder_enabled` to group_settings and filter on that here.
 function scheduleDailyReminder(bot, db) {
   cron.schedule(
-    "0 8 * * *",
+     "0 8 * * *",
     async () => {
       console.log("Running daily chama reminder");
       try {
@@ -57,17 +57,20 @@ function scheduleDailyReminder(bot, db) {
 //      Telegram clients, just publicly instead of privately.
 function scheduleOverdueReminder(bot, db) {
   cron.schedule(
-    "0 18 * * *",
+     "0 8 * * *", // TEMP: every minute for testing — change back to "0 18 * * *" after confirming it works
     async () => {
       console.log("Running 7-day overdue contribution reminder");
       try {
+        // NOTE: contributions table uses `contributed_at`, not `created_at`
+        // — corrected from the lesson's original column name to match this
+        // project's actual schema.
         const { rows } = await db.query(
-          `SELECT gm.chat_id, gm.user_id, gm.first_name, MAX(c.created_at) AS last_contribution
+          `SELECT gm.chat_id, gm.user_id, gm.first_name, MAX(c.contributed_at) AS last_contribution
            FROM group_members gm
            LEFT JOIN contributions c ON c.user_id = gm.user_id AND c.chat_id = gm.chat_id
            WHERE gm.left_at IS NULL
            GROUP BY gm.chat_id, gm.user_id, gm.first_name
-           HAVING MAX(c.created_at) < NOW() - INTERVAL '7 days' OR MAX(c.created_at) IS NULL`
+           HAVING MAX(c.contributed_at) < NOW() - INTERVAL '7 days' OR MAX(c.contributed_at) IS NULL`
         );
 
         for (const row of rows) {
