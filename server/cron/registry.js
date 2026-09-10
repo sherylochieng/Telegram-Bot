@@ -22,6 +22,7 @@ const jobs = [
   {
     name: "daily-owner-report",
     schedule: "0 8 * * *", // 08:00 daily
+    // schedule: "*/1 * * * *", // TEMP: every minute for testing — change back to "0 8 * * *" after confirming it works
     timezone: "Africa/Nairobi",
     run: tasks.sendDailyOwnerReport,
   },
