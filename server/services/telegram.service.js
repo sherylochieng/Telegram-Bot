@@ -4,7 +4,7 @@ const env = require("../config/env");
 const { handleMessage } = require("../handlers/message.handler");
 const { handleCallbackQuery } = require("../handlers/callback.handler");
 const { handleChatMemberUpdate } = require("../handlers/member.handler"); // CHANGE A: group management (Day 3)
-const { scheduleDailyReminder, scheduleOverdueReminder } = require("./scheduled-jobs"); // CHANGE F: cron jobs (Day 4)
+const cronRegistry = require("../cron/registry"); // CHANGE I: Week 21 Day 1 cron registry (replaces scheduled-jobs.js)
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
@@ -16,14 +16,15 @@ if (process.env.DATABASE_URL) {
   });
   db.connect()
     .then(() => {
-      // ─── CHANGE G ─────────────────────────────────────────────────────────
-      // Start the daily reminder cron job once we have a working DB
-      // connection. We wait for the connection to succeed first because
-      // the cron job needs `db` to query group_settings when it fires —
-      // starting it before we know the connection works risks silent
-      // failures every day at 8am if the DB was never actually available.
-      scheduleDailyReminder(bot, db);
-      scheduleOverdueReminder(bot, db); // CHANGE H: 7-day overdue personal reminder
+      // ─── CHANGE J ─────────────────────────────────────────────────────────
+      // Start ALL scheduled jobs via the cron registry (settings
+      // reconciliation, broadcast cleanup, daily owner report, daily group
+      // reminder, overdue reminders, health ping) — replaces the two
+      // separate scheduleDailyReminder/scheduleOverdueReminder calls from
+      // Day 4 with a single call. Every job is now defined in one place
+      // (server/cron/tasks.js + registry.js), logged to cron_runs, and
+      // won't crash the server or stop future runs if one job fails.
+      cronRegistry.startAll(bot, db);
       // ──────────────────────────────────────────────────────────────────────
     })
     .catch(err => {
