@@ -10,13 +10,12 @@ const PAYSTACK_BASE_URL = "https://api.paystack.co";
 // don't have one, we generate a placeholder (fine for test mode, since no
 // real email is ever contacted).
 //
-// `reference` is OUR unique ID for this transaction (not Paystack's) — we
-// generate it up front so we can save a `pending` row in `contributions`
-// immediately, then match it against the webhook event later to confirm
-// which specific attempt succeeded.
+// NOTE: originally used a ".local" TLD (user<id>@telegrambot.local), but
+// Paystack's email validator rejects that as not a valid email format —
+// switched to ".com" instead, which passes validation without issue.
 async function initializeTransaction({ chatId, userId, amount }) {
   const reference = `chama_${chatId}_${userId}_${Date.now()}`;
-  const email = `user${userId}@telegrambot.local`;
+  const email = `user${userId}@telegrambot.com`;
 
   const response = await fetch(`${PAYSTACK_BASE_URL}/transaction/initialize`, {
     method: "POST",
