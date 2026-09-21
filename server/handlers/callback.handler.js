@@ -63,6 +63,14 @@ async function showBalance(bot, chatId, userId, db) {
 // contributed by the whole group, number of contributions, and number of
 // distinct members who've contributed at least once — all scoped to this
 // chat only.
+//
+// ─── CHANGE 16 ────────────────────────────────────────────────────────────
+// Extended to also list a PER-MEMBER breakdown: each contributing member's
+// name and their individual total, sorted highest-to-lowest. Uses
+// group_members for first_name (since contributions only stores user_id,
+// not a display name), and falls back to the raw Telegram ID if for some
+// reason a member row is missing (e.g. they joined before Day 3's
+// chat_member tracking existed).
 async function showStats(bot, chatId, db) {
   if (!db) {
     await bot.telegram.sendMessage(chatId, "Group stats are unavailable right now. Try again shortly.");
@@ -70,7 +78,7 @@ async function showStats(bot, chatId, db) {
   }
 
   try {
-    const result = await db.query(
+    const summaryResult = await db.query(
       `SELECT
          COALESCE(SUM(amount), 0)::int AS total,
          COUNT(*)::int AS contribution_count,
@@ -79,14 +87,37 @@ async function showStats(bot, chatId, db) {
        WHERE chat_id = $1 AND status = 'completed'`,
       [chatId]
     );
-    const r = result.rows[0];
-    await bot.telegram.sendMessage(
-      chatId,
-      `Group stats:\n` +
-        `- Total contributed: KSh ${r.total.toLocaleString()}\n` +
-        `- Contributions made: ${r.contribution_count}\n` +
-        `- Members who've contributed: ${r.contributor_count}`
+    const r = summaryResult.rows[0];
+
+    const perMemberResult = await db.query(
+      `SELECT
+         c.user_id,
+         COALESCE(gm.first_name, c.user_id::text) AS display_name,
+         SUM(c.amount)::int AS member_total
+       FROM contributions c
+       LEFT JOIN group_members gm ON gm.chat_id = c.chat_id AND gm.user_id = c.user_id
+       WHERE c.chat_id = $1 AND c.status = 'completed'
+       GROUP BY c.user_id, gm.first_name
+       ORDER BY member_total DESC`,
+      [chatId]
     );
+
+    let message =
+      `Group stats:\n` +
+      `- Total contributed: KSh ${r.total.toLocaleString()}\n` +
+      `- Contributions made: ${r.contribution_count}\n` +
+      `- Members who've contributed: ${r.contributor_count}\n\n` +
+      `Per member:\n`;
+
+    if (perMemberResult.rows.length === 0) {
+      message += "No contributions recorded yet.";
+    } else {
+      message += perMemberResult.rows
+        .map((row) => `- ${row.display_name}: KSh ${row.member_total.toLocaleString()}`)
+        .join("\n");
+    }
+
+    await bot.telegram.sendMessage(chatId, message);
   } catch (err) {
     console.error("Error fetching group stats:", err.message);
     await bot.telegram.sendMessage(chatId, "Couldn't fetch group stats. Please try again.");
