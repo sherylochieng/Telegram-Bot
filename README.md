@@ -1,4 +1,4 @@
-# Mctaba Demo Bot — Telegram Chama Bot
+# Mc Demo Bot - Telegram Chama Bot
 
 A Telegram bot built with **Telegraf**, **PostgreSQL**, **Redis**, and **Paystack**, designed to manage a chama (savings group) community: tracking contributions, managing group membership, moderating spam, sending scheduled reminders and broadcasts, and accepting real (test-mode) payments via card, Airtel Money, or M-Pesa.
 
