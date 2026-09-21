@@ -8,6 +8,33 @@ const cronRegistry = require("../cron/registry"); // CHANGE I: Week 21 Day 1 cro
 
 const bot = new Telegraf(env.TELEGRAM_BOT_TOKEN);
 
+// ─── CHANGE 17 ───────────────────────────────────────────────────────────────
+// Registers this bot's commands with Telegram via setMyCommands. This is
+// what makes commands TAPPABLE: Telegram shows them in the "/" menu button
+// next to the message box, and autocompletes them as the user types "/".
+// Without this call, commands still WORK when typed manually, but nobody
+// sees a clickable list — Telegram has no built-in way to discover a bot's
+// commands otherwise.
+//
+// /kick and /broadcast are left out of this list deliberately: they're
+// admin/owner-only, and clickable command menus are visible to EVERY user
+// in a chat — showing them would just invite regular members to try
+// (and fail) commands that were never meant for them.
+async function registerBotCommands() {
+  try {
+    await bot.telegram.setMyCommands([
+      { command: "start", description: "Start the bot and see the main menu" },
+      { command: "help", description: "List available commands" },
+      { command: "echo", description: "Echo back the text you send" },
+    ]);
+    console.log("✓ Bot commands registered with Telegram");
+  } catch (err) {
+    console.error("Error registering bot commands:", err.message);
+  }
+}
+registerBotCommands();
+// ──────────────────────────────────────────────────────────────────────────
+
 // Database connection
 let db = null;
 if (process.env.DATABASE_URL) {
@@ -69,10 +96,11 @@ bot.help(async (ctx) => {
   console.log("User requested help:", ctx.from.id);
   await saveChat(ctx.message.chat);
   await ctx.reply(
-    "Available commands:\n" +
-    "/start - start the bot\n" +
-    "/help - show this message\n" +
-    "/echo <text> - echo back\n"
+    "Available commands:\n\n" +
+    "/start – start the bot and see the main menu\n" +
+    "/help – show this message\n" +
+    "/echo <text> – echo back whatever you type\n\n" +
+    "Tip: tap the ☰ menu button next to the message box to see and tap these commands directly."
   );
 });
 
