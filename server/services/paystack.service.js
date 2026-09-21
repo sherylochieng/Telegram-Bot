@@ -57,6 +57,17 @@ async function initializeMpesaCharge({ chatId, userId, amount, phone }) {
   const reference = `chama_${chatId}_${userId}_${Date.now()}`;
   const email = `user${userId}@telegrambot.com`;
 
+  // ─── Phone format fix ─────────────────────────────────────────────────────
+  // We collect the number from the user in international format
+  // (2547XXXXXXXX), which is the clearer format to ask for and validate.
+  // However, Paystack's Kenya mobile money charge endpoint actually expects
+  // LOCAL format (07XXXXXXXX) — sending the 254-prefixed version returns
+  // "Invalid phone number format" even though it's a perfectly valid
+  // number. So we convert here, right before the API call, keeping the
+  // international format everywhere else in the app (validation regex,
+  // what we show the user, etc).
+  const localPhone = "0" + phone.slice(3);
+
   const response = await fetch(`${PAYSTACK_BASE_URL}/charge`, {
     method: "POST",
     headers: {
@@ -69,7 +80,7 @@ async function initializeMpesaCharge({ chatId, userId, amount, phone }) {
       currency: "KES",
       reference,
       mobile_money: {
-        phone,
+        phone: localPhone,
         provider: "mpesa",
       },
     }),
