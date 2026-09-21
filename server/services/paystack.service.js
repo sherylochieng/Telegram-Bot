@@ -43,6 +43,50 @@ async function initializeTransaction({ chatId, userId, amount }) {
   };
 }
 
+// ─── M-Pesa STK push charge ──────────────────────────────────────────────────
+// Uses Paystack's /charge endpoint (different from /transaction/initialize
+// above) with a mobile_money payload. For M-Pesa specifically, this makes
+// Paystack trigger a genuine STK push — the "Enter M-Pesa PIN to pay" prompt
+// that appears directly on the phone tied to that number. No link, no
+// browser — the user confirms payment right on their phone's own prompt.
+//
+// Same reference pattern as initializeTransaction: we generate our own
+// reference up front so the webhook can later match this specific attempt
+// back to the correct `contributions` row.
+async function initializeMpesaCharge({ chatId, userId, amount, phone }) {
+  const reference = `chama_${chatId}_${userId}_${Date.now()}`;
+  const email = `user${userId}@telegrambot.com`;
+
+  const response = await fetch(`${PAYSTACK_BASE_URL}/charge`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email,
+      amount: amount * 100,
+      currency: "KES",
+      reference,
+      mobile_money: {
+        phone,
+        provider: "mpesa",
+      },
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!data.status) {
+    throw new Error(data.message || "Paystack M-Pesa charge failed");
+  }
+
+  // Paystack returns status "pay_offline" or "pending" here while it waits
+  // for the user to approve the STK push on their phone — this is expected
+  // and not an error. The actual success/failure comes later via webhook.
+  return { reference, displayText: data.data.display_text || null };
+}
+
 // ─── Verify webhook signature ───────────────────────────────────────────────
 // Paystack signs every webhook payload with your secret key (HMAC SHA512),
 // sent in the x-paystack-signature header. This function recomputes that
@@ -58,4 +102,4 @@ function verifyWebhookSignature(rawBody, signature) {
   return hash === signature;
 }
 
-module.exports = { initializeTransaction, verifyWebhookSignature };
+module.exports = { initializeTransaction, initializeMpesaCharge, verifyWebhookSignature };
