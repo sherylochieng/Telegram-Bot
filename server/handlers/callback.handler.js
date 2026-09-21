@@ -1,4 +1,5 @@
 const { getSession, setSession } = require("../services/session.service");
+const { initializeTransaction } = require("../services/paystack.service"); // CHANGE 14: real payments via Paystack
 
 async function promptContribution(bot, chatId, userId) {
   await setSession(chatId, userId, { state: "awaiting_amount", context: {} });
@@ -154,23 +155,50 @@ async function handleCallbackQuery(bot, ctx, db) {
     const session = await getSession(chatId, userId);
     const amount = session.context.amount;
 
+    // ─── CHANGE 15 ────────────────────────────────────────────────────────
+    // Replaces the old direct-write flow (which just INSERTed a 'completed'
+    // row with no actual payment happening) with a real Paystack payment
+    // link.
+    //
+    // Flow:
+    //   1. Call Paystack to initialize a transaction — this returns a
+    //      hosted payment page URL and a reference we generated ourselves.
+    //   2. Save a 'pending' row in `contributions` immediately, tagged with
+    //      that reference. This is what lets the webhook (built next) find
+    //      and update the RIGHT row later, without guessing which pending
+    //      attempt just got paid.
+    //   3. Send the user the payment link as a button. We do NOT mark this
+    //      contribution 'completed' here — only the webhook does that,
+    //      once Paystack confirms the payment actually went through. This
+    //      is important: without this, the bot would "record" a
+    //      contribution before any money changed hands.
     try {
-      // Write contribution to database
+      const { reference, authorizationUrl } = await initializeTransaction({
+        chatId,
+        userId,
+        amount,
+      });
+
       if (db) {
         await db.query(
-          `INSERT INTO contributions (chat_id, user_id, amount, status)
-           VALUES ($1, $2, $3, 'completed')`,
-          [chatId, userId, amount]
+          `INSERT INTO contributions (chat_id, user_id, amount, status, reference)
+           VALUES ($1, $2, $3, 'pending', $4)`,
+          [chatId, userId, amount, reference]
         );
-        console.log("✓ Saved to DB - chatId:", chatId, "userId:", userId, "amount:", amount);
       }
 
-      await bot.telegram.sendMessage(chatId, `✓ Contribution of KSh ${amount} recorded!`);
+      await bot.telegram.sendMessage(chatId, `Tap below to complete your KSh ${amount} contribution:`, {
+        reply_markup: {
+          inline_keyboard: [[{ text: "Pay now", url: authorizationUrl }]],
+        },
+      });
+
       await setSession(chatId, userId, { state: "idle", context: {} });
     } catch (err) {
-      console.error("Error saving contribution:", err.message);
-      await bot.telegram.sendMessage(chatId, "Error saving contribution. Please try again.");
+      console.error("Error initializing payment:", err.message);
+      await bot.telegram.sendMessage(chatId, "Couldn't start payment. Please try again.");
     }
+    // ──────────────────────────────────────────────────────────────────────
   } else if (data === "cnf:no") {
     console.log("→ Cancelling contribution");
     await bot.telegram.sendMessage(chatId, "Contribution cancelled.");
