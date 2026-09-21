@@ -3,6 +3,7 @@ const { confirmContribution } = require("./callback.handler");
 const { getClient } = require("../config/redis"); // CHANGE 1: needed for spam counter
 const { getGroupSettings } = require("../services/settings.service"); // CHANGE 6: per-group settings
 const { broadcast } = require("../services/broadcast.service"); // CHANGE 9: broadcast command (Day 4)
+const { initializeMpesaCharge } = require("../services/paystack.service"); // CHANGE 19: M-Pesa STK push
 
 // ─── CHANGE 10 ───────────────────────────────────────────────────────────────
 // Hardcoded bot-owner ID — the only Telegram user allowed to run /broadcast.
@@ -116,6 +117,61 @@ async function handleMessage(bot, message, db) {
     await confirmContribution(bot, chatId, userId, amount);
     return;
   }
+
+  // ─── CHANGE 20 ────────────────────────────────────────────────────────────
+  // State: awaiting M-Pesa phone number. Reached after the user taps
+  // "M-Pesa" on the payment-method screen (callback.handler.js CHANGE 19).
+  //
+  // Once a valid-looking phone number comes in, we:
+  //   1. Call Paystack's Charge API with mobile_money/mpesa — this
+  //      triggers the actual STK push to their phone.
+  //   2. Save a 'pending' contributions row, same pattern as the card
+  //      flow, so the SAME webhook (paystack.routes.js) can mark it
+  //      'completed' once they approve on their phone — no separate
+  //      webhook logic needed for M-Pesa vs card.
+  //   3. Tell them to check their phone — no link, no further bot action
+  //      needed until the webhook fires.
+  if (session.state === "awaiting_mpesa_phone") {
+    const phone = text.trim();
+
+    // Basic format check: Kenyan numbers Paystack expects look like
+    // 2547XXXXXXXX (12 digits, starting with 254). Not exhaustive
+    // validation, just enough to catch obviously wrong input before
+    // wasting a Paystack API call.
+    if (!/^254[71]\d{8}$/.test(phone)) {
+      await bot.telegram.sendMessage(
+        chatId,
+        "That doesn't look like a valid number. Please use the format 2547XXXXXXXX or 2541XXXXXXXX."
+      );
+      return;
+    }
+
+    const amount = session.context.amount;
+
+    try {
+      const { reference } = await initializeMpesaCharge({ chatId, userId, amount, phone });
+
+      if (db) {
+        await db.query(
+          `INSERT INTO contributions (chat_id, user_id, amount, status, reference)
+           VALUES ($1, $2, $3, 'pending', $4)`,
+          [chatId, userId, amount, reference]
+        );
+      }
+
+      await bot.telegram.sendMessage(
+        chatId,
+        `Check your phone (${phone}) — enter your M-Pesa PIN to complete the KSh ${amount} payment.`
+      );
+
+      await setSession(chatId, userId, { state: "idle", context: {} });
+    } catch (err) {
+      console.error("Error initiating M-Pesa charge:", err.message);
+      await bot.telegram.sendMessage(chatId, "Couldn't start M-Pesa payment. Please try again.");
+    }
+    return;
+  }
+  // ──────────────────────────────────────────────────────────────────────────
 
   // Default: command parsing
   if (text === "/start") {
