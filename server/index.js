@@ -178,9 +178,11 @@ const express = require("express");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const telegram = require("./services/telegram.service");
+
 const env = require("./config/env");
 
 app.use("/telegram", require("./routes/telegram.routes"));
+app.use("/paystack", require("./routes/paystack.routes")); // Paystack webhook route
 
 const server = app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
