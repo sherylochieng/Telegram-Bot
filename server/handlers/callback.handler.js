@@ -1,5 +1,5 @@
 const { getSession, setSession } = require("../services/session.service");
-const { initializeTransaction } = require("../services/paystack.service"); // CHANGE 14: real payments via Paystack
+const { initializeTransaction } = require("../services/paystack.service"); // CHANGE 14: card/Airtel Money payment link
 
 async function promptContribution(bot, chatId, userId) {
   await setSession(chatId, userId, { state: "awaiting_amount", context: {} });
@@ -182,27 +182,31 @@ async function handleCallbackQuery(bot, ctx, db) {
     console.log("→ Routing to confirmContribution, amount:", amount);
     await confirmContribution(bot, chatId, userId, amount);
   } else if (data === "cnf:yes") {
-    console.log("→ Confirming contribution");
+    console.log("→ Confirming contribution — asking payment method");
+
+    // ─── CHANGE 18 ────────────────────────────────────────────────────────
+    // Instead of jumping straight to a card payment link, ask which
+    // payment method the user wants first. Card and Airtel Money both use
+    // Paystack's hosted checkout page (a link) — no STK-push equivalent
+    // exists for those. M-Pesa DOES support a direct STK push via
+    // Paystack's Charge API, which is a noticeably better experience (a
+    // native phone prompt, no browser at all) — so it gets its own path.
+    await bot.telegram.sendMessage(chatId, "How would you like to pay?", {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "Card / Airtel Money", callback_data: "pay:card" }],
+          [{ text: "M-Pesa", callback_data: "pay:mpesa" }],
+        ],
+      },
+    });
+    // ──────────────────────────────────────────────────────────────────────
+  } else if (data === "pay:card") {
+    console.log("→ Card/Airtel Money payment selected");
     const session = await getSession(chatId, userId);
     const amount = session.context.amount;
 
-    // ─── CHANGE 15 ────────────────────────────────────────────────────────
-    // Replaces the old direct-write flow (which just INSERTed a 'completed'
-    // row with no actual payment happening) with a real Paystack payment
-    // link.
-    //
-    // Flow:
-    //   1. Call Paystack to initialize a transaction — this returns a
-    //      hosted payment page URL and a reference we generated ourselves.
-    //   2. Save a 'pending' row in `contributions` immediately, tagged with
-    //      that reference. This is what lets the webhook (built next) find
-    //      and update the RIGHT row later, without guessing which pending
-    //      attempt just got paid.
-    //   3. Send the user the payment link as a button. We do NOT mark this
-    //      contribution 'completed' here — only the webhook does that,
-    //      once Paystack confirms the payment actually went through. This
-    //      is important: without this, the bot would "record" a
-    //      contribution before any money changed hands.
+    // Same card/Airtel Money flow as before (CHANGE 15), now triggered by
+    // an explicit method choice instead of running automatically.
     try {
       const { reference, authorizationUrl } = await initializeTransaction({
         chatId,
@@ -229,6 +233,22 @@ async function handleCallbackQuery(bot, ctx, db) {
       console.error("Error initializing payment:", err.message);
       await bot.telegram.sendMessage(chatId, "Couldn't start payment. Please try again.");
     }
+  } else if (data === "pay:mpesa") {
+    console.log("→ M-Pesa payment selected — asking for phone number");
+
+    // ─── CHANGE 19 ────────────────────────────────────────────────────────
+    // M-Pesa's STK push needs a phone number to send the prompt to — we
+    // don't have one on file for the user, so we ask for it and store the
+    // "awaiting_mpesa_phone" state. The actual charge call happens in
+    // message.handler.js once they reply with a number (see that file for
+    // the continuation of this flow).
+    const session = await getSession(chatId, userId);
+    const amount = session.context.amount;
+    await setSession(chatId, userId, { state: "awaiting_mpesa_phone", context: { amount } });
+    await bot.telegram.sendMessage(
+      chatId,
+      "Enter your M-Pesa phone number (format: 2547XXXXXXXX):"
+    );
     // ──────────────────────────────────────────────────────────────────────
   } else if (data === "cnf:no") {
     console.log("→ Cancelling contribution");
