@@ -89,6 +89,7 @@ async function initializeMpesaCharge({ chatId, userId, amount, phone }) {
   const data = await response.json();
 
   if (!data.status) {
+    console.error("Paystack M-Pesa charge full response:", JSON.stringify(data, null, 2));
     throw new Error(data.message || "Paystack M-Pesa charge failed");
   }
 
