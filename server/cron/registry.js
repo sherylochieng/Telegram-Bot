@@ -10,12 +10,14 @@ const jobs = [
   {
     name: "settings-reconciliation",
     schedule: "0 2 * * *", // 02:00 daily
+    // schedule: "*/1 * * * *", // TEMP: every minute for testing — change back to "0 8 * * *" after confirming it works
     timezone: "Africa/Nairobi",
     run: tasks.reconcileGroupSettings,
   },
   {
     name: "cleanup-old-broadcasts",
     schedule: "0 3 * * *", // 03:00 daily
+    // schedule: "*/1 * * * *", // TEMP: every minute for testing — change back to "0 8 * * *" after confirming it works
     timezone: "Africa/Nairobi",
     run: tasks.cleanupOldBroadcasts,
   },
@@ -29,12 +31,14 @@ const jobs = [
   {
     name: "daily-group-reminder",
     schedule: "0 8 * * *", // 08:00 daily
+    // schedule: "*/1 * * * *", // TEMP: every minute for testing — change back to "0 8 * * *" after confirming it works
     timezone: "Africa/Nairobi",
     run: tasks.sendDailyGroupReminder,
   },
   {
     name: "overdue-reminders",
     schedule: "0 18 * * *", // 18:00 daily
+    // schedule: "*/1 * * * *", // TEMP: every minute for testing — change back to "0 8 * * *" after confirming it works
     timezone: "Africa/Nairobi",
     run: tasks.sendOverdueReminders,
   },
