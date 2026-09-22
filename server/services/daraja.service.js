@@ -1,9 +1,9 @@
 const DARAJA_BASE_URL = "https://sandbox.safaricom.co.ke"; // switch to api.safaricom.co.ke for production
 
-const CONSUMER_KEY = process.env.DARAJA_CONSUMER_KEY;
-const CONSUMER_SECRET = process.env.DARAJA_CONSUMER_SECRET;
-const SHORTCODE = process.env.DARAJA_SHORTCODE;
-const PASSKEY = process.env.DARAJA_PASSKEY;
+const CONSUMER_KEY = process.env.DARAJA_CONSUMER_KEY?.trim();
+const CONSUMER_SECRET = process.env.DARAJA_CONSUMER_SECRET?.trim();
+const SHORTCODE = process.env.DARAJA_SHORTCODE?.trim();
+const PASSKEY = process.env.DARAJA_PASSKEY?.trim();
 
 // ─── OAuth access token ──────────────────────────────────────────────────────
 // Daraja requires a short-lived OAuth token (valid ~1 hour) on every request.
@@ -22,7 +22,20 @@ async function getAccessToken() {
     },
   });
 
-  const data = await response.json();
+  // DEBUG: read as text first so a non-JSON or empty response doesn't just
+  // throw an opaque "Unexpected end of JSON input" — we want to see what
+  // Daraja actually sent back (often an HTML error page or empty body when
+  // credentials, IP, or the request itself is wrong).
+  const rawText = await response.text();
+  console.log("Daraja OAuth response status:", response.status);
+  console.log("Daraja OAuth raw response:", rawText);
+
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch (err) {
+    throw new Error(`Daraja OAuth returned non-JSON response (status ${response.status}): ${rawText.slice(0, 200)}`);
+  }
 
   if (!data.access_token) {
     throw new Error("Failed to get Daraja access token: " + JSON.stringify(data));
@@ -89,7 +102,18 @@ async function initiateSTKPush({ phone, amount, accountReference, callbackUrl })
     }),
   });
 
-  const data = await response.json();
+  // DEBUG: same raw-text-first approach as getAccessToken, so a failure
+  // here shows us exactly what Daraja sent rather than an opaque parse error.
+  const rawText = await response.text();
+  console.log("Daraja STK push response status:", response.status);
+  console.log("Daraja STK push raw response:", rawText);
+
+  let data;
+  try {
+    data = JSON.parse(rawText);
+  } catch (err) {
+    throw new Error(`Daraja STK push returned non-JSON response (status ${response.status}): ${rawText.slice(0, 200)}`);
+  }
 
   if (data.ResponseCode !== "0") {
     throw new Error(data.errorMessage || data.ResponseDescription || "STK push failed");
