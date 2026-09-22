@@ -3,7 +3,8 @@ const { confirmContribution } = require("./callback.handler");
 const { getClient } = require("../config/redis"); // CHANGE 1: needed for spam counter
 const { getGroupSettings } = require("../services/settings.service"); // CHANGE 6: per-group settings
 const { broadcast } = require("../services/broadcast.service"); // CHANGE 9: broadcast command (Day 4)
-const { initializeMpesaCharge } = require("../services/paystack.service"); // CHANGE 19: M-Pesa STK push
+const { initiateSTKPush } = require("../services/daraja.service"); // CHANGE 21: M-Pesa via Daraja (was Paystack)
+const env = require("../config/env");
 
 // ─── CHANGE 10 ───────────────────────────────────────────────────────────────
 // Hardcoded bot-owner ID — the only Telegram user allowed to run /broadcast.
@@ -118,26 +119,30 @@ async function handleMessage(bot, message, db) {
     return;
   }
 
-  // ─── CHANGE 20 ────────────────────────────────────────────────────────────
+  // ─── CHANGE 21 (was CHANGE 20, Paystack) ─────────────────────────────────
   // State: awaiting M-Pesa phone number. Reached after the user taps
-  // "M-Pesa" on the payment-method screen (callback.handler.js CHANGE 19).
+  // "M-Pesa" on the payment-method screen (callback.handler.js).
+  //
+  // SWITCHED from Paystack's Charge API to Safaricom's own Daraja API
+  // directly — this gives a genuinely real-time STK push straight from
+  // Safaricom, without going through Paystack as a middle layer, and
+  // without Paystack's test-mode restriction to one fixed test number.
   //
   // Once a valid-looking phone number comes in, we:
-  //   1. Call Paystack's Charge API with mobile_money/mpesa — this
-  //      triggers the actual STK push to their phone.
-  //   2. Save a 'pending' contributions row, same pattern as the card
-  //      flow, so the SAME webhook (paystack.routes.js) can mark it
-  //      'completed' once they approve on their phone — no separate
-  //      webhook logic needed for M-Pesa vs card.
+  //   1. Call Daraja's STK push endpoint — this triggers the actual
+  //      "Enter M-Pesa PIN" prompt on their phone.
+  //   2. Save a 'pending' contributions row tagged with the
+  //      CheckoutRequestID Daraja returns — NOT the same as Paystack's
+  //      `reference` field; Daraja has its own tracking ID and its own
+  //      callback shape (see routes/daraja.routes.js).
   //   3. Tell them to check their phone — no link, no further bot action
-  //      needed until the webhook fires.
+  //      needed until the Daraja callback fires.
   if (session.state === "awaiting_mpesa_phone") {
     const phone = text.trim();
 
-    // Basic format check: Kenyan numbers Paystack expects look like
-    // 2547XXXXXXXX (12 digits, starting with 254). Not exhaustive
-    // validation, just enough to catch obviously wrong input before
-    // wasting a Paystack API call.
+    // Basic format check: Kenyan numbers in international format
+    // (2547XXXXXXXX / 2541XXXXXXXX). Not exhaustive validation, just
+    // enough to catch obviously wrong input before wasting a Daraja call.
     if (!/^254[71]\d{8}$/.test(phone)) {
       await bot.telegram.sendMessage(
         chatId,
@@ -149,13 +154,19 @@ async function handleMessage(bot, message, db) {
     const amount = session.context.amount;
 
     try {
-      const { reference } = await initializeMpesaCharge({ chatId, userId, amount, phone });
+      const callbackUrl = `${env.PUBLIC_URL}/daraja/callback`;
+      const { checkoutRequestId } = await initiateSTKPush({
+        phone,
+        amount,
+        accountReference: `chama-${chatId}`,
+        callbackUrl,
+      });
 
       if (db) {
         await db.query(
-          `INSERT INTO contributions (chat_id, user_id, amount, status, reference)
+          `INSERT INTO contributions (chat_id, user_id, amount, status, checkout_request_id)
            VALUES ($1, $2, $3, 'pending', $4)`,
-          [chatId, userId, amount, reference]
+          [chatId, userId, amount, checkoutRequestId]
         );
       }
 
@@ -166,7 +177,7 @@ async function handleMessage(bot, message, db) {
 
       await setSession(chatId, userId, { state: "idle", context: {} });
     } catch (err) {
-      console.error("Error initiating M-Pesa charge:", err.message);
+      console.error("Error initiating M-Pesa STK push:", err.message);
       await bot.telegram.sendMessage(chatId, "Couldn't start M-Pesa payment. Please try again.");
     }
     return;
