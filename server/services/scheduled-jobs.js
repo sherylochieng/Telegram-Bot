@@ -14,7 +14,7 @@ const cron = require("node-cron");
 // like `daily_reminder_enabled` to group_settings and filter on that here.
 function scheduleDailyReminder(bot, db) {
   cron.schedule(
-     "0 8 * * *",
+     "*/1 * * * *", // TEMP: every minute for testing — change back to "0 8 * * *" after confirming it works
     async () => {
       console.log("Running daily chama reminder");
       try {
@@ -57,7 +57,7 @@ function scheduleDailyReminder(bot, db) {
 //      Telegram clients, just publicly instead of privately.
 function scheduleOverdueReminder(bot, db) {
   cron.schedule(
-     "0 8 * * *", // TEMP: every minute for testing — change back to "0 18 * * *" after confirming it works
+     "*/1 * * * *", // TEMP: every minute for testing — change back to "0 18 * * *" after confirming it works
     async () => {
       console.log("Running 7-day overdue contribution reminder");
       try {
